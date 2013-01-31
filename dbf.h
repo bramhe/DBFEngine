@@ -14,6 +14,7 @@ typedef unsigned char uint8;
 typedef short int uint16;
 typedef int uint32;
 
+#define MAX_FIELDS 255
 
 struct fileHeader
 {
@@ -57,12 +58,18 @@ public:
     DBF();
     ~DBF();
 
-    int open(string sFileName);
+    int open(string sFileName,bool bAllowWrite=false); // open an existing dbf file
     int close();
+
+    int markAsDeleted(int nRecord); // mark this record as deleted
+    int create(string sFileName,int nNumFields); // create a new dbf file with space for nNumFields
+    int assignField(fieldDefinition myFieldDef,int nField); // used to assign the field info ONLY if num records in file = 0 !!!
+    int addRecord(string sCSVRecord); // used to add records to the dbf file
 
     int getFieldIndex(string sFieldName);
     int loadRec(int nRecord); // load the record into memory
     string readField(int nField); // read the request field as a string always!
+
 
     int GetNumRecords()
     {
@@ -97,17 +104,18 @@ public:
        return ss.str(); //return a string with the contents of the stream
     }
 
-
 private:
     FILE * m_pFileHandle;
     string m_sFileName;
 
+    bool m_bAllowWrite;
     fileHeader m_FileHeader;
-    fieldDefinition m_FieldDefinitions[255]; // allow a max of 255 fields
+    fieldDefinition m_FieldDefinitions[MAX_FIELDS]; // allow a max of 255 fields
     int m_nNumFields; // number of fields in use
 
-    char m_Record[8000]; // max of 8K per record (not sure if this is reasonable, no documentation available!)
+    int updateFileHeader();
 
+    char m_Record[8000]; // max of 8K per record (not sure if this is reasonable, good enough for my needs, no documentation available!)
 
 };
 
