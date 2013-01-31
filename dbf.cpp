@@ -335,7 +335,7 @@ int DBF::create(string sFileName,int nNumFields)
         m_FieldDefinitions[i].Reserved8[i]=0;
 
         // write the definitions
-        fwrite(&m_FieldDefinitions[i],1,sizeof(m_FieldDefinitions),m_pFileHandle);
+        fwrite(&m_FieldDefinitions[i],1,sizeof(fieldDefinition),m_pFileHandle);
     }
     // write the field definition termination character
     char FieldDefTermination[2];
