@@ -5,20 +5,36 @@ DBF::DBF()
     m_pFileHandle = NULL;
     m_nNumFields = 0;
     m_bAllowWrite = false;
+    m_bStructSizesOK = true;
     if( sizeof( fileHeader ) != 32 )
-        std::cerr << __FUNCTION__ << " Structure is padded and will not work! " << sizeof( fileHeader ) << std::endl;
+    {
+        std::cerr << __FUNCTION__ << " fileHeader Structure is padded and will not work! Must be 32, but is " << sizeof( fileHeader ) << std::endl;
+        m_bStructSizesOK = false;
+    }
+    if( sizeof( fieldDefinition ) != 32 )
+    {
+        std::cerr << __FUNCTION__ << " fieldDefinition Structure is padded and will not work! Must be 32, but is " << sizeof( fieldDefinition ) << std::endl;
+        m_bStructSizesOK = false;
+    }
+
+    m_pRecord = new char[MAX_RECORD_SIZE];
 }
 
 DBF::~DBF()
 {
     if( m_pFileHandle != NULL )
         fclose(m_pFileHandle);
+
+    m_pFileHandle = NULL;
+    delete [] m_pRecord;
 }
 
 int DBF::open(string sFileName,bool bAllowWrite)
 {
     // open a dbf file for reading only
     m_sFileName = sFileName;
+    if( bAllowWrite && !m_bStructSizesOK )
+        bAllowWrite = false; // DO NOT WRITE IF ENGINE IS NOT COMPILED PROPERLY!
     m_bAllowWrite = bAllowWrite;
 
     char cMode[10] = "r";
@@ -67,7 +83,7 @@ int DBF::open(string sFileName,bool bAllowWrite)
         }
         // show field in std out
         std::cout << "  " << m_FieldDefinitions[m_nNumFields].cFieldName << ", Type=" << m_FieldDefinitions[m_nNumFields].cFieldType
-              << ", Disp=" << (int) m_FieldDefinitions[m_nNumFields].uFieldOffset << ", len=" << (int) m_FieldDefinitions[m_nNumFields].uLength
+              << ", Offset=" << (int) m_FieldDefinitions[m_nNumFields].uFieldOffset << ", len=" << (int) m_FieldDefinitions[m_nNumFields].uLength
               << ", Dec=" << (int) m_FieldDefinitions[m_nNumFields].uNumberOfDecimalPlaces << ", Flag=" << (int) m_FieldDefinitions[m_nNumFields].FieldFlags << std::endl;
 
         m_nNumFields++;
@@ -87,13 +103,13 @@ int DBF::open(string sFileName,bool bAllowWrite)
 
 int DBF::close()
 {
-    return fclose(m_pFileHandle);
+    int nRet = fclose(m_pFileHandle);
     m_pFileHandle = NULL;
     m_sFileName = "";
     m_nNumFields = 0;
     m_bAllowWrite = false;
     m_FileHeader.u8FileType = 0;
-
+    return nRet;
 }
 
 int DBF::getFieldIndex(string sFieldName)
@@ -111,26 +127,38 @@ int DBF::loadRec(int nRecord)
     // read as a string always!  All modern languages can convert it later
     int nPos = m_FileHeader.uPositionOfFirstRecord + m_FileHeader.uRecordLength*nRecord;
     int nRes = fseek(m_pFileHandle,nPos,SEEK_SET);
-    if (ferror (m_pFileHandle))
-          std::cerr << __FUNCTION__ << " Error seeking to record " << nRecord << std::endl;
+    if ( nRes != 0 )
+    {
+        std::cerr << __FUNCTION__ << " Error seeking to record " << nRecord << " at " << nPos << " err=" << ferror (m_pFileHandle) << std::endl;
+        return 1;
+    }
 
     if( nRes != 0)
     {
-        for( unsigned int i=0;i<sizeof(m_Record);i++)
-            m_Record[i]=0; // clear record to indicate it is invalid
+        for( unsigned int i=0;i<sizeof(m_pRecord);i++)
+            m_pRecord[i]=0; // clear record to indicate it is invalid
         return 1; //fail
     }
-    int nBytesRead = fread(&m_Record[0],1,m_FileHeader.uRecordLength,m_pFileHandle);
+    int nBytesRead = fread(&m_pRecord[0],1,m_FileHeader.uRecordLength,m_pFileHandle);
     if( nBytesRead != m_FileHeader.uRecordLength )
     {
         std::cerr << __FUNCTION__ << " read(" << nRecord << ") failed, wanted " << m_FileHeader.uRecordLength << ", but got " << nBytesRead << " bytes";
-        for( unsigned int i=0;i<sizeof(m_Record);i++)
-            m_Record[i]=0; // clear record to indicate it is invalid
+        for( unsigned int i=0;i<sizeof(m_pRecord);i++)
+            m_pRecord[i]=0; // clear record to indicate it is invalid
         return 1; //fail
     }
 
     // record is now ready to be used
     return 0;
+}
+
+bool DBF::isRecordDeleted()
+{
+    // works on currently loaded record
+    if( m_pRecord[0] != ' ' )
+        return true;
+    else
+        return false;
 }
 
 string DBF::readField(int nField)
@@ -164,7 +192,7 @@ string DBF::readField(int nField)
         // convert integer numbers up to 16 bytes long into a string
         uint8 n[16];
         for( int i = 0 ; i < nMaxSize ; i++ )
-            n[i] = (uint8 ) m_Record[nOffset+i];
+            n[i] = (uint8 ) m_pRecord[nOffset+i];
 
         return convertNumber(&n[0],nMaxSize);
     }
@@ -181,10 +209,10 @@ string DBF::readField(int nField)
             } uvar;
             uvar.f = 0;
 
-            uvar.n[0] = (uint8 ) m_Record[nOffset];
-            uvar.n[1] = (uint8 ) m_Record[nOffset+1];
-            uvar.n[2] = (uint8 ) m_Record[nOffset+2];
-            uvar.n[3] = (uint8 ) m_Record[nOffset+3];
+            uvar.n[0] = (uint8 ) m_pRecord[nOffset];
+            uvar.n[1] = (uint8 ) m_pRecord[nOffset+1];
+            uvar.n[2] = (uint8 ) m_pRecord[nOffset+2];
+            uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
 
             stringstream ss;
             ss << uvar.f;
@@ -199,14 +227,14 @@ string DBF::readField(int nField)
             } uvar;
             uvar.d = 0;
 
-            uvar.n[0] = (uint8 ) m_Record[nOffset];
-            uvar.n[1] = (uint8 ) m_Record[nOffset+1];
-            uvar.n[2] = (uint8 ) m_Record[nOffset+2];
-            uvar.n[3] = (uint8 ) m_Record[nOffset+3];
-            uvar.n[4] = (uint8 ) m_Record[nOffset+4];
-            uvar.n[5] = (uint8 ) m_Record[nOffset+5];
-            uvar.n[6] = (uint8 ) m_Record[nOffset+6];
-            uvar.n[7] = (uint8 ) m_Record[nOffset+7];
+            uvar.n[0] = (uint8 ) m_pRecord[nOffset];
+            uvar.n[1] = (uint8 ) m_pRecord[nOffset+1];
+            uvar.n[2] = (uint8 ) m_pRecord[nOffset+2];
+            uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
+            uvar.n[4] = (uint8 ) m_pRecord[nOffset+4];
+            uvar.n[5] = (uint8 ) m_pRecord[nOffset+5];
+            uvar.n[6] = (uint8 ) m_pRecord[nOffset+6];
+            uvar.n[7] = (uint8 ) m_pRecord[nOffset+7];
 
             stringstream ss;
             ss << uvar.d;
@@ -216,9 +244,9 @@ string DBF::readField(int nField)
     else if( cType == 'L' )
     {
         // Logical ,T = true, ?=NULL, F=False
-        if( strncmp(&(m_Record[nOffset]),"T",1) == 0 )
+        if( strncmp(&(m_pRecord[nOffset]),"T",1) == 0 )
             return "T";
-        else if( strncmp(&(m_Record[nOffset]),"?",1) == 0 )
+        else if( strncmp(&(m_pRecord[nOffset]),"?",1) == 0 )
             return "?";
         else
             return "F";
@@ -226,7 +254,7 @@ string DBF::readField(int nField)
     {
         // Character type fields (default)
         char dest[255];
-        strncpy(&dest[0],&m_Record[nOffset],nMaxSize);
+        strncpy(&dest[0],&m_pRecord[nOffset],nMaxSize);
         dest[nMaxSize]=0; // make sure string is terminated!
         // trim end of string (std c++ is so lame!)
         for( int i=strlen(dest)-1 ; i >= 0 ; i-- )
@@ -244,6 +272,12 @@ string DBF::readField(int nField)
 
 int DBF::create(string sFileName,int nNumFields)
 {
+    if( !m_bStructSizesOK )
+    {
+        std::cerr << "Unable to create new DBF because engine is compiled incorrectly, struct sizes are incorrect!" << std::endl;
+        return 1;
+    }
+
     // create a new dbf file with space for nNumFields
     if( m_pFileHandle != NULL )
     {
@@ -263,21 +297,25 @@ int DBF::create(string sFileName,int nNumFields)
 
     // setup the file header
     m_FileHeader.u8FileType = 0x30;
-    m_FileHeader.Reserved1 = 0;
-    m_FileHeader.Reserved2 = 0;
-    m_FileHeader.Reserved3 = 0;
-    m_FileHeader.Reserved4 = 0;
-    m_FileHeader.Reserved5 = 0;
-    m_FileHeader.u8LastUpdateDay = 0;
-    m_FileHeader.u8LastUpdateMonth = 0;
-    m_FileHeader.u8LastUpdateYear = 13;
-    m_FileHeader.uCodePage = 3; // copied from another db, no idea what this corresponds to
+    for( int i=0; i<16;i++)
+        m_FileHeader.Reserved16[i] = 0;
+    for( int i=0; i<2;i++)
+        m_FileHeader.Reserved2[i] = 0;
+
+    time_t t = time(NULL);
+    tm* timePtr = localtime(&t);
+
+    int nYear = timePtr->tm_year % 100; // convert yr to 2 digits
+    m_FileHeader.u8LastUpdateDay = timePtr->tm_mday;
+    m_FileHeader.u8LastUpdateMonth = timePtr->tm_mon+1;
+    m_FileHeader.u8LastUpdateYear = nYear;
+    m_FileHeader.uCodePage = 0; // copied from another db, no idea what this corresponds to
     m_FileHeader.uPositionOfFirstRecord = 32+32*nNumFields+264; // calculated based on the file header size plus the n*FieldDef size + 1 term char + 263 zeros
     m_FileHeader.uRecordLength = 0;
     m_FileHeader.uRecordsInFile = 0;
     m_FileHeader.uTableFlags = 0; // bit fields, copied from another db , 0x01=has a .cdx?, 0x02=Has Memo Fields, 0x04=is a .dbc?
 
-    // write in the File Header for the first time!
+    // write the File Header for the first time!
     fwrite(&m_FileHeader,1,sizeof(m_FileHeader),m_pFileHandle);
 
     // now write dummy field definition records until the real ones can be specified
@@ -288,17 +326,23 @@ int DBF::create(string sFileName,int nNumFields)
         m_FieldDefinitions[i].cFieldType='C';
         m_FieldDefinitions[i].FieldFlags=0;
         m_FieldDefinitions[i].uAutoIncrementStep=0;
-        m_FieldDefinitions[i].uNextAutoIncrementValue=0;
+        m_FieldDefinitions[i].uNextAutoIncrementValue[0]=0;
+        m_FieldDefinitions[i].uNextAutoIncrementValue[1]=0;
+        m_FieldDefinitions[i].uNextAutoIncrementValue[2]=0;
+        m_FieldDefinitions[i].uNextAutoIncrementValue[3]=0;
         m_FieldDefinitions[i].uLength=0;
         m_FieldDefinitions[i].uNumberOfDecimalPlaces=0;
-        m_FieldDefinitions[i].Reserved6=0;
-        m_FieldDefinitions[i].Reserved7=0;
+        m_FieldDefinitions[i].Reserved8[i]=0;
+
         // write the definitions
         fwrite(&m_FieldDefinitions[i],1,sizeof(m_FieldDefinitions),m_pFileHandle);
     }
     // write the field definition termination character
-    char FieldDefTermination = 0x0D;
-    fwrite(&FieldDefTermination,1,1,m_pFileHandle);
+    char FieldDefTermination[2];
+    FieldDefTermination[0] = 0x0D;
+    FieldDefTermination[1] = 0;
+
+    fwrite(FieldDefTermination,1,1,m_pFileHandle);
     // write the 263 bytes of 0
     char cZero[263];
     for( int j=0; j<263;j++)
@@ -306,8 +350,10 @@ int DBF::create(string sFileName,int nNumFields)
 
     fwrite(&cZero[0],1,263,m_pFileHandle);
     // this is now the starting point for the first record
-
     // ready to assign the field definitions!
+
+    // make sure change is made permanent, we are not looking for speed, just reliability and compatibility
+    fflush(m_pFileHandle);
 
     return 0;
 }
@@ -318,6 +364,14 @@ int DBF::updateFileHeader()
     int nRes = fseek(m_pFileHandle,0,SEEK_SET);
     if( nRes != 0)
         return 1; //fail
+
+    // update the last modified date
+    time_t t = time(NULL);
+    tm* timePtr = localtime(&t);
+    int nYear = timePtr->tm_year % 100; // convert yr to 2 digits
+    m_FileHeader.u8LastUpdateDay = timePtr->tm_mday;
+    m_FileHeader.u8LastUpdateMonth = timePtr->tm_mon+1;
+    m_FileHeader.u8LastUpdateYear = nYear;
 
     // write the current header info
     int nBytesWritten = fwrite(&m_FileHeader,1,sizeof(m_FileHeader),m_pFileHandle);
@@ -330,7 +384,7 @@ int DBF::updateFileHeader()
     return 0;
 }
 
-int DBF::assignField(fieldDefinition myFieldDef,int nField)
+int DBF::assignField(fieldDefinition fd,int nField)
 {
     // used to assign the field info ONLY if num records in file = 0 !!!
     if( m_FileHeader.uRecordsInFile != 0)
@@ -339,12 +393,48 @@ int DBF::assignField(fieldDefinition myFieldDef,int nField)
         return 1; // fail
     }
 
+    // this engine does not support auto increment, set it to zero
+    fd.uAutoIncrementStep=0;
+    fd.uNextAutoIncrementValue[0]=0;
+    fd.uNextAutoIncrementValue[1]=0;
+    fd.uNextAutoIncrementValue[2]=0;
+    fd.uNextAutoIncrementValue[3]=0;
+
+    for( int i=0; i<8;i++)
+        fd.Reserved8[i] = 0; // must always be set to zeros!
+
+    // add some rules to prevent creation of invalid db.
+    if( fd.cFieldType=='F' || fd.cFieldType=='I' )
+    {
+        fd.uLength = 4;
+    }else if( fd.cFieldType=='D' || fd.cFieldType=='O' )
+    {
+        fd.uLength = 8;
+    }else if( fd.cFieldType=='L' )
+    {
+        fd.uLength = 1;
+    } else
+    {
+        //default case
+        if( fd.uLength < 1 )
+            fd.uLength=1;
+    }
+
+    // calculate the proper field offset based on corrected data
+    if( nField == 0 )
+        fd.uFieldOffset = 1;
+    else
+    {
+        fd.uFieldOffset = 1;
+        for( int i=0;i<nField;i++ )
+            fd.uFieldOffset += m_FieldDefinitions[i].uLength;
+    }
 
     int nPosOfFieldDef = 32+nField*32;
     int nRes = fseek(m_pFileHandle,nPosOfFieldDef,SEEK_SET);
     if( nRes != 0)
         return 1; //fail
-    int nBytesWritten = fwrite(&myFieldDef,1,sizeof(fieldDefinition),m_pFileHandle);
+    int nBytesWritten = fwrite(&fd,1,sizeof(fieldDefinition),m_pFileHandle);
     if( nBytesWritten != sizeof(m_FileHeader) )
     {
         // error!
@@ -352,80 +442,195 @@ int DBF::assignField(fieldDefinition myFieldDef,int nField)
         return 1;
     }
     // update the in memory definition too
-    m_FieldDefinitions[nField] = myFieldDef;
+    m_FieldDefinitions[nField] = fd;
 
     // update the total record length, and the header record!
-    m_FileHeader.uRecordLength = 0;
-    for( int i=0;i< m_nNumFields ;i++ )
+    m_FileHeader.uRecordLength = 1; // 1 byte for delete flag
+    for( int i=0;i<= nField ;i++ )
         m_FileHeader.uRecordLength += m_FieldDefinitions[i].uLength;
     updateFileHeader();
 
     return 0;
 }
 
-int DBF::addRecord(string sCSVRecord)
+int DBF::appendRecord(string *sValues,int nNumValues)
 {
     // used to add records to the dbf file (append to end of file only)
-    int nRes = fseek(m_pFileHandle,0,SEEK_END);
-    if (ferror (m_pFileHandle))
-          std::cerr << __FUNCTION__ << " Error seeking to end of file " << std::endl;
-    if( nRes != 0)
+    if( nNumValues != m_nNumFields )
+    {
+        std::cerr << "Can not add new record, wrong number of Values given, expected " << m_nNumFields << std::endl;
+        return 1;
+    }
+
+    // calculate the proper location for this record
+    int nRecPos = 32 + 32*m_nNumFields + 264 + m_FileHeader.uRecordLength * m_FileHeader.uRecordsInFile;
+    int nRes = fseek(m_pFileHandle,nRecPos,SEEK_SET);
+    if (nRes != 0 )
+    {
+        std::cerr << __FUNCTION__ << " Error seeking to new Record position " << std::endl;
         return 1; //fail
+    }
+
+    // clear record
+    for( int i = 0 ; i < m_FileHeader.uRecordLength ; i++ )
+        m_pRecord[i] = 0;
+    m_pRecord[0] = ' '; // clear the deleted flag for the new record
+
+    // file position is now at end of file
 
 
-// NOT DONE
+    for( int f=0;f<m_nNumFields;f++)
+    {
+        // pull field value out of string record
+        string sFieldValue = sValues[f];
+        char cType = m_FieldDefinitions[f].cFieldType;
+        if( cType == 'I' )
+        {
+            // convert string version of INT, into actual int, and save into the record
+            int res = ConvertStringToInt(sFieldValue,m_FieldDefinitions[f].uLength,&m_pRecord[m_FieldDefinitions[f].uFieldOffset]);
+            if( res > 0 )
+                std::cerr << "Unable to convert '" << sFieldValue << "' to int "
+                          << m_FieldDefinitions[f].uLength << " bytes" << std::endl;
+        }
+        else if( cType== 'F' || cType == 'B' || cType == 'O' )
+        {
+            // float or double
+            int res = ConvertStringToFloat(sFieldValue,m_FieldDefinitions[f].uLength,&m_pRecord[m_FieldDefinitions[f].uFieldOffset]);
+            if( res > 0 )
+            {
+                std::cerr << "Unable to convert '" << sFieldValue << "' to float "
+                          << m_FieldDefinitions[f].uLength << " bytes" << std::endl;
+            }
+        }
+        else if( cType== 'L' )
+        {
+            // logical
+            if( sFieldValue=="T" || sFieldValue=="TRUE" )
+                m_pRecord[m_FieldDefinitions[f].uFieldOffset] = 'T';
+            else if( sFieldValue=="?")
+                m_pRecord[m_FieldDefinitions[f].uFieldOffset] = '?';
+            else
+                m_pRecord[m_FieldDefinitions[f].uFieldOffset] = 'F';
+        } else
+        {
+            // default for character type fields (and all unhandled field types)
+            for( unsigned int j=0;j<m_FieldDefinitions[f].uLength;j++)
+            {
+                int n = m_FieldDefinitions[f].uFieldOffset + j;
+                if( j < sFieldValue.length() )
+                    m_pRecord[n] = sFieldValue[j];
+                else
+                    m_pRecord[n] = 0; // zero fill remainder of field
+            }
+        }
+    }
+    // write the record at the end of the file
+    int nBytesWritten = fwrite(&m_pRecord[0],1,m_FileHeader.uRecordLength,m_pFileHandle);
+    if( nBytesWritten != m_FileHeader.uRecordLength )
+    {
+        std::cerr << __FUNCTION__ << " Failed to write new record ! wrote " << nBytesWritten
+                  << " bytes but wanted to write " <<  m_FileHeader.uRecordLength << "bytes" << std::endl;
+        return 1;
+    }
 
-    // convert each csv value into the proper data type,
-    // write the record to the end of the file
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    // update the header to reflect the record count
+    // update the header to reflect the New record count
     m_FileHeader.uRecordsInFile++;
     updateFileHeader();
+
+    // make sure change is made permanent, we are not looking for speed, just reliability and compatibility
+    fflush(m_pFileHandle);
     return 0;
 }
 
 int DBF::markAsDeleted(int nRecord)
 {
     // mark this record as deleted
+    if( !m_bAllowWrite )
+    {
+        std::cerr << "Can not delete records from a read only DBF!" << std::endl;
+        return 1;
+    }
     int nPos = m_FileHeader.uPositionOfFirstRecord + m_FileHeader.uRecordLength*nRecord;
     int nRes = fseek(m_pFileHandle,nPos,SEEK_SET);
-    if (ferror (m_pFileHandle))
-          std::cerr << __FUNCTION__ << " Error loading record " << nRecord << std::endl;
-    if( nRes != 0)
+    if (nRes !=0 )
+    {
+        std::cerr << __FUNCTION__ << " Error loading record " << nRecord << std::endl;
         return 1; //fail
+    }
 
     char Rec[2];
 
     int nBytesRead = fread(&Rec[0],1,1,m_pFileHandle);
-    if( nBytesRead != m_FileHeader.uRecordLength )
+    if( nBytesRead != 1 )
     {
-        std::cerr << __FUNCTION__ << "read(" << nRecord << ") failed, wanted " << m_FileHeader.uRecordLength << ", but got " << nBytesRead << " bytes";
+        std::cerr << __FUNCTION__ << "read(" << nRecord << ") failed, wanted 1, but got " << nBytesRead << " bytes";
         return 1; //fail
     }
 
     if( Rec[0] == ' ' )
     {
         // ok to delete, not marked as deleted yet
-        Rec[0] = '*'; // I hope this is the delete character, NOT SURE!!!
-        fwrite(&Rec[0],1,1,m_pFileHandle);
-        m_FileHeader.uRecordsInFile--;
-        updateFileHeader();
+        // must re-seek to proper spot
+        int nRes = fseek(m_pFileHandle,nPos,SEEK_SET);
+        if (nRes !=0 )
+        {
+            std::cerr << __FUNCTION__ << " Error loading record " << nRecord << std::endl;
+            return 1; //fail
+        }
+
+        Rec[0] = DBF_DELETED_RECORD_FLAG;
+        Rec[1] = 0;
+        int nBytesWritten = fwrite(&Rec[0],1,1,m_pFileHandle);
+        if( nBytesWritten != 1 )
+        {
+            std::cerr << __FUNCTION__ << "delete(" << nRecord << ") failed, wanted to write 1 byte , but wrote " << nBytesWritten << " bytes, err=" << ferror(m_pFileHandle) << std::endl;
+            return 1; //fail
+        }
+
+        // make sure change is made permanent, we are not looking for speed, just reliability and compatibility
+        fflush(m_pFileHandle);
     }
 
     // done
     return 0;
+}
+
+void DBF::dumpAsCSV()
+{
+    // output the fields and records as a csv to the std output
+    // first column is deleted flag!
+    for( int f=0; f < m_nNumFields ; f++ )
+    {
+        string sFieldName = GetFieldName(f);
+        std::cout << "," << sFieldName ;
+    }
+    std::cout << std::endl;
+
+    for( int r = 0; r < m_FileHeader.uRecordsInFile ; r++ )
+    {
+        loadRec(r);
+        if( isRecordDeleted() )
+            std::cout << "D"; // show D for deleted records in first column
+
+        for( int f=0; f < m_nNumFields ; f++ )
+        {
+            string s = readField(f);
+            int nFind = s.find(",");
+            if( nFind > -1 )
+            {
+                // put string in double quotes!
+                // need quotes (make sure string also does not have double quotes, NOT DONE!)
+                nFind = s.find("\"");
+                while( nFind > -1 )
+                {
+                    s[nFind] = '\''; // convert double quote(34) to single quote to prevent errors reading this csv
+                    nFind = s.find("\"");
+                }
+                std::cout << ",\"" << s << "\"";
+            }
+            else
+                std::cout << "," << s;
+        }
+        std::cout << std::endl;
+    }
 }
