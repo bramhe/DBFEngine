@@ -51,9 +51,9 @@ int DBF::open(string sFileName,bool bAllowWrite)
         bAllowWrite = false; // DO NOT WRITE IF ENGINE IS NOT COMPILED PROPERLY!
     m_bAllowWrite = bAllowWrite;
 
-    char cMode[10] = "r";
+    char cMode[10] = "rb"; // for windows we MUST open in binary mode ALWAYS!!!  Linux does not care
     if( m_bAllowWrite )
-        strncpy(cMode,"r+",3); // change to read write mode
+        strncpy(cMode,"rb+",3); // change to read write mode
 
     m_pFileHandle = fopen(sFileName.c_str(),cMode);
     if( m_pFileHandle == NULL )
@@ -63,6 +63,7 @@ int DBF::open(string sFileName,bool bAllowWrite)
     }
 
     // open is ok, so read in the File Header
+
     int nBytesRead = fread (&m_FileHeader,1,32,m_pFileHandle);
     if( nBytesRead != 32 )
     {
@@ -210,6 +211,51 @@ string DBF::readField(int nField)
 
         return convertNumber(&n[0],nMaxSize);
     }
+    else if( cType == 'B' )
+    {
+        // handle real float or double
+        if( nMaxSize == 4)
+        {
+            // float
+            union name1
+            {
+                uint8   n[4];
+                float     f;
+            } uvar;
+            uvar.f = 0;
+
+            uvar.n[0] = (uint8 ) m_pRecord[nOffset];
+            uvar.n[1] = (uint8 ) m_pRecord[nOffset+1];
+            uvar.n[2] = (uint8 ) m_pRecord[nOffset+2];
+            uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
+
+            stringstream ss;
+            ss << uvar.f;
+            return ss.str();
+        } else if( nMaxSize == 8)
+        {
+            // double
+            union name1
+            {
+                uint8   n[8];
+                double     d;
+            } uvar;
+            uvar.d = 0;
+
+            uvar.n[0] = (uint8 ) m_pRecord[nOffset];
+            uvar.n[1] = (uint8 ) m_pRecord[nOffset+1];
+            uvar.n[2] = (uint8 ) m_pRecord[nOffset+2];
+            uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
+            uvar.n[4] = (uint8 ) m_pRecord[nOffset+4];
+            uvar.n[5] = (uint8 ) m_pRecord[nOffset+5];
+            uvar.n[6] = (uint8 ) m_pRecord[nOffset+6];
+            uvar.n[7] = (uint8 ) m_pRecord[nOffset+7];
+
+            stringstream ss;
+            ss << uvar.d;
+            return ss.str();
+        }
+    }
     else if( cType == 'L' )
     {
         // Logical ,T = true, ?=NULL, F=False
@@ -222,21 +268,13 @@ string DBF::readField(int nField)
     } else
     {
         // Character type fields (default)
-        char *dest = new char(nMaxSize+1);
+        char dest[256]; // Fields can not exceed 255 chars
+        for( int i = 0 ; i < min(nMaxSize+1,256) ; i++ )
+            dest[i] = 0; // clear past end of usable string in case it is missing a terminator
         strncpy(&dest[0],&m_pRecord[nOffset],nMaxSize);
-        dest[nMaxSize]=0; // make sure string is terminated!
 
-        // trim end of string (std c++ is so lame!)
-        for( int i=strlen(dest)-1 ; i >= 0 ; i-- )
-        {
-            if( dest[i] == ' ' )
-                dest[i] = 0;
-            else
-                break;
-        }
         stringstream ss;
         ss << dest;
-        delete [] dest;
         return ss.str();
     }
     return "FAIL";
@@ -385,6 +423,9 @@ int DBF::assignField(fieldDefinition fd,int nField)
     if( fd.cFieldType=='I' )
     {
         fd.uLength = 4;
+    }else if( fd.cFieldType=='B' )
+    {
+        fd.uLength = 8; // actual double, not text!
     }else if( fd.cFieldType=='L' )
     {
         fd.uLength = 1;
@@ -466,6 +507,16 @@ int DBF::appendRecord(string *sValues,int nNumValues)
             if( res > 0 )
                 std::cerr << "Unable to convert '" << sFieldValue << "' to int "
                           << m_FieldDefinitions[f].uLength << " bytes" << std::endl;
+        }
+        else if( cType== 'B' )
+        {
+            // float or double
+            int res = ConvertStringToFloat(sFieldValue,m_FieldDefinitions[f].uLength,&m_pRecord[m_FieldDefinitions[f].uFieldOffset]);
+            if( res > 0 )
+            {
+                std::cerr << "Unable to convert '" << sFieldValue << "' to float "
+                          << m_FieldDefinitions[f].uLength << " bytes" << std::endl;
+            }
         }
         else if( cType== 'L' )
         {
@@ -580,6 +631,26 @@ void DBF::dumpAsCSV()
         for( int f=0; f < m_nNumFields ; f++ )
         {
             string s = readField(f);
+            // trim right spaces
+            for( int i = s.length()-1 ; i > 0 ; i-- )
+            {
+                if( s[i] == ' ' )
+                    s.erase(i,1);
+                else
+                    break; // done
+            }
+            // trim left spaces
+            for( int i = 0 ; i < s.length() ; i++ )
+            {
+                if( s[i] == ' ' )
+                {
+                    s.erase(i,1);
+                    i--;
+                }
+                else
+                    break; // done
+            }
+
             int nFind = s.find(",");
             if( nFind > -1 )
             {
