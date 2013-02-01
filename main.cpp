@@ -100,8 +100,40 @@ int main(int argc, char *argv[])
             string s4[5]={"300000" ,"Gary\" Q","175.9","13","F"};
             newdbf.appendRecord(s4,5);
 
-            string s5[5]={"4000000" ,"Dan'e \"D, with comma and over sized field that will be truncated","65.2","6","F"};
+            string s5[5]={"2000000" ,"Dan'e \"D, with comma and over sized field that will be truncated","65.2","6","F"};
             newdbf.appendRecord(s5,5);
+
+            // now add a huge pile of random records to see if it crashes
+            int nID = 2000001;
+            for( int i=0; i < 1000; i++)
+            {
+                stringstream ssName;
+                ssName << "FirstName" << nID;
+
+                float fWeight = (float) nID / 40000.0;
+                int nAge = i % 120;
+
+
+                stringstream ssID;
+                ssID << nID;
+
+                stringstream ssWeight;
+                ssWeight << fWeight;
+
+                stringstream ssAge;
+                ssAge << nAge;
+
+                string sMarried = "F";
+                if( nID % 2 == 0 )
+                    sMarried = "T";
+
+                string sRec[5]={ssID.str(),ssName.str(),ssWeight.str(),ssAge.str(),sMarried};
+                newdbf.appendRecord(sRec,5);
+
+                nID++;
+            }
+
+
 
             newdbf.close();
 

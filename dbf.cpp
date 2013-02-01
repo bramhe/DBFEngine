@@ -393,6 +393,11 @@ int DBF::assignField(fieldDefinition fd,int nField)
         return 1; // fail
     }
 
+    // set the unused characters for the field name to zero
+    int nPos = strlen(fd.cFieldName);
+    for( int i=nPos; i < 11 ; i++ )
+        fd.cFieldName[i]=0;
+
     // this engine does not support auto increment, set it to zero
     fd.uAutoIncrementStep=0;
     fd.uNextAutoIncrementValue[0]=0;
