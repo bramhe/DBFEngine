@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
             fd.FieldFlags=0;
             fd.uAutoIncrementStep=0;
             fd.uFieldOffset=0;
-            fd.uLength=4;
+            fd.uLength=12;
             fd.uNumberOfDecimalPlaces=0;
             newdbf.assignField(fd,2);
 
@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
 
 
             // now create some records to test it!
-            string s1[5]= {"1" ,"Ric G","210.5","43","T"};
+            string s1[5]= {"1" ,"Ric G","210.123456789123456","43","T"};
             newdbf.appendRecord(&s1[0],5);
 
             string s2[5]={"1000" ,"Paul F","196.2","33","T"};
@@ -97,7 +97,7 @@ int main(int argc, char *argv[])
             string s3[5]={"20000" ,"Dean K","186.1","23","F"};
             newdbf.appendRecord(s3,5);
 
-            string s4[5]={"300000" ,"Gary\" Q","175.9","13","F"};
+            string s4[5]={"300000" ,"Gary\" Q","175.123456789","13","F"};
             newdbf.appendRecord(s4,5);
 
             string s5[5]={"2000000" ,"Dan'e \"D, with comma and over sized field that will be truncated","65.2","6","F"};
@@ -150,7 +150,9 @@ int main(int argc, char *argv[])
             std::cout << "Done Reading a freshly created DBF! " << std::endl;
 
             std::cout << "Test Delete Record 1 in DBF! " << std::endl;
+            std::cout << "Test Delete Record 999 in DBF! " << std::endl;
             readTest.markAsDeleted(1);
+            readTest.markAsDeleted(999);
             readTest.dumpAsCSV();
             std::cout << "Done Test Delete Record DBF! " << std::endl;
 

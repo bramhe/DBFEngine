@@ -1,5 +1,19 @@
 #include "dbf.h"
 
+// Copyright (C) 2012 Ron Ostafichuk
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files
+// (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify,
+// merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+// OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+// LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+// IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 DBF::DBF()
 {
     m_pFileHandle = NULL;
@@ -172,13 +186,13 @@ string DBF::readField(int nField)
 
     /* possible types
       C=char
-      Y=Currency?
+      Y=Currency (? format unknown, probably char)
       N=Numeric (really just a char)
-      F=Float
-      D=Date (? format unknown)
-      T=Date Time (? format unknown)
-      B=Double
-      I=Integer
+      F=Float (really just a char)
+      D=Date (? format unknown, probably char)
+      T=Date Time (? format unknown, probably char)
+      B=Double (really just a char)
+      I=Integer (4 byte int)
       L=Logical (char[1] with T=true,?=Null,F=False)
       M=memo (big char field?)
       G=General (?)
@@ -196,51 +210,6 @@ string DBF::readField(int nField)
 
         return convertNumber(&n[0],nMaxSize);
     }
-    else if( cType== 'F' || cType == 'B' || cType == 'O' )
-    {
-        // float
-        if( nMaxSize == 4)
-        {
-            // float
-            union name1
-            {
-                uint8   n[4];
-                float     f;
-            } uvar;
-            uvar.f = 0;
-
-            uvar.n[0] = (uint8 ) m_pRecord[nOffset];
-            uvar.n[1] = (uint8 ) m_pRecord[nOffset+1];
-            uvar.n[2] = (uint8 ) m_pRecord[nOffset+2];
-            uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
-
-            stringstream ss;
-            ss << uvar.f;
-            return ss.str();
-        } else if( nMaxSize == 8)
-        {
-            // double
-            union name1
-            {
-                uint8   n[8];
-                double     d;
-            } uvar;
-            uvar.d = 0;
-
-            uvar.n[0] = (uint8 ) m_pRecord[nOffset];
-            uvar.n[1] = (uint8 ) m_pRecord[nOffset+1];
-            uvar.n[2] = (uint8 ) m_pRecord[nOffset+2];
-            uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
-            uvar.n[4] = (uint8 ) m_pRecord[nOffset+4];
-            uvar.n[5] = (uint8 ) m_pRecord[nOffset+5];
-            uvar.n[6] = (uint8 ) m_pRecord[nOffset+6];
-            uvar.n[7] = (uint8 ) m_pRecord[nOffset+7];
-
-            stringstream ss;
-            ss << uvar.d;
-            return ss.str();
-        }
-    }
     else if( cType == 'L' )
     {
         // Logical ,T = true, ?=NULL, F=False
@@ -253,9 +222,10 @@ string DBF::readField(int nField)
     } else
     {
         // Character type fields (default)
-        char dest[255];
+        char *dest = new char(nMaxSize+1);
         strncpy(&dest[0],&m_pRecord[nOffset],nMaxSize);
         dest[nMaxSize]=0; // make sure string is terminated!
+
         // trim end of string (std c++ is so lame!)
         for( int i=strlen(dest)-1 ; i >= 0 ; i-- )
         {
@@ -264,7 +234,10 @@ string DBF::readField(int nField)
             else
                 break;
         }
-        return string(dest);
+        stringstream ss;
+        ss << dest;
+        delete [] dest;
+        return ss.str();
     }
     return "FAIL";
 }
@@ -409,12 +382,9 @@ int DBF::assignField(fieldDefinition fd,int nField)
         fd.Reserved8[i] = 0; // must always be set to zeros!
 
     // add some rules to prevent creation of invalid db.
-    if( fd.cFieldType=='F' || fd.cFieldType=='I' )
+    if( fd.cFieldType=='I' )
     {
         fd.uLength = 4;
-    }else if( fd.cFieldType=='D' || fd.cFieldType=='O' )
-    {
-        fd.uLength = 8;
     }else if( fd.cFieldType=='L' )
     {
         fd.uLength = 1;
@@ -496,16 +466,6 @@ int DBF::appendRecord(string *sValues,int nNumValues)
             if( res > 0 )
                 std::cerr << "Unable to convert '" << sFieldValue << "' to int "
                           << m_FieldDefinitions[f].uLength << " bytes" << std::endl;
-        }
-        else if( cType== 'F' || cType == 'B' || cType == 'O' )
-        {
-            // float or double
-            int res = ConvertStringToFloat(sFieldValue,m_FieldDefinitions[f].uLength,&m_pRecord[m_FieldDefinitions[f].uFieldOffset]);
-            if( res > 0 )
-            {
-                std::cerr << "Unable to convert '" << sFieldValue << "' to float "
-                          << m_FieldDefinitions[f].uLength << " bytes" << std::endl;
-            }
         }
         else if( cType== 'L' )
         {
@@ -615,7 +575,7 @@ void DBF::dumpAsCSV()
     {
         loadRec(r);
         if( isRecordDeleted() )
-            std::cout << "D"; // show D for deleted records in first column
+            std::cout << DBF_DELETED_RECORD_FLAG; // show * for deleted records in first column
 
         for( int f=0; f < m_nNumFields ; f++ )
         {
