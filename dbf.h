@@ -83,7 +83,8 @@ public:
     int getFieldIndex(string sFieldName);
     int loadRec(int nRecord); // load the record into memory
     bool isRecordDeleted(); // check if loaded record is deleted
-    string readField(int nField); // read the request field as a string always fromr the loaded record!
+    string readField(int nField); // read the request field as a string always from the loaded record!
+    double readFieldAsDouble(int nField); // read the request field as a double to get higher performance for 'B' type fields only!
 
     void dumpAsCSV(); // output fields and records as csv to std output
 

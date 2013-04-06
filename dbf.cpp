@@ -280,6 +280,56 @@ string DBF::readField(int nField)
     return "FAIL";
 }
 
+double DBF::readFieldAsDouble(int nField)
+{
+    // read the request field as a double to get higher performance for 'B' type fields only!
+    char cType = m_FieldDefinitions[nField].cFieldType;
+    int nOffset = m_FieldDefinitions[nField].uFieldOffset;
+    int nMaxSize = m_FieldDefinitions[nField].uLength;
+
+    if( cType == 'B' )
+    {
+        // handle real float or double
+        if( nMaxSize == 4)
+        {
+            // float
+            union name1
+            {
+                uint8   n[4];
+                float     f;
+            } uvar;
+            uvar.f = 0;
+
+            uvar.n[0] = (uint8 ) m_pRecord[nOffset];
+            uvar.n[1] = (uint8 ) m_pRecord[nOffset+1];
+            uvar.n[2] = (uint8 ) m_pRecord[nOffset+2];
+            uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
+
+            return uvar.f;
+        } else if( nMaxSize == 8)
+        {
+            // double
+            union name1
+            {
+                uint8   n[8];
+                double     d;
+            } uvar;
+            uvar.d = 0;
+
+            uvar.n[0] = (uint8 ) m_pRecord[nOffset];
+            uvar.n[1] = (uint8 ) m_pRecord[nOffset+1];
+            uvar.n[2] = (uint8 ) m_pRecord[nOffset+2];
+            uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
+            uvar.n[4] = (uint8 ) m_pRecord[nOffset+4];
+            uvar.n[5] = (uint8 ) m_pRecord[nOffset+5];
+            uvar.n[6] = (uint8 ) m_pRecord[nOffset+6];
+            uvar.n[7] = (uint8 ) m_pRecord[nOffset+7];
+
+            return uvar.d;
+        }
+    }
+    return -9e99; // fail !!!
+}
 
 int DBF::create(string sFileName,int nNumFields)
 {
