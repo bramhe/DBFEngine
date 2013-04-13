@@ -186,6 +186,7 @@ public:
                 uint8 n[4];
             } u;
             stringstream ss;
+            ss.precision(8); // ensure string conversion maintains single precision
             ss << sFloat;
             ss >> u.f;
 
@@ -200,6 +201,7 @@ public:
                 uint8 n[8];
             } u;
             stringstream ss;
+            ss.precision(17); // ensure string conversion maintains double precision
             ss << sFloat;
             ss >> u.d;
 
