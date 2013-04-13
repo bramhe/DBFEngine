@@ -230,6 +230,7 @@ string DBF::readField(int nField)
             uvar.n[3] = (uint8 ) m_pRecord[nOffset+3];
 
             stringstream ss;
+            ss.precision(8); // ensure string conversion maintains single precision
             ss << uvar.f;
             return ss.str();
         } else if( nMaxSize == 8)
@@ -252,6 +253,7 @@ string DBF::readField(int nField)
             uvar.n[7] = (uint8 ) m_pRecord[nOffset+7];
 
             stringstream ss;
+            ss.precision(17); // ensure string conversion maintains double precision
             ss << uvar.d;
             return ss.str();
         }
