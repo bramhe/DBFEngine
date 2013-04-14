@@ -104,6 +104,20 @@ int DBF::open(string sFileName,bool bAllowWrite)
         m_nNumFields++;
     }while(!feof(m_pFileHandle));
 
+    // recalculate field offsets, some Files can have incorrect offsets!
+    uint32 uFieldOffset = 1;
+    for( int i=0;i<m_nNumFields;i++ )
+    {
+        m_FieldDefinitions[i].uFieldOffset = uFieldOffset;
+        uFieldOffset += m_FieldDefinitions[i].uLength;
+    }
+    // the offset here should match the total record length, if not, then we might have a very corrupt file
+    if( uFieldOffset != m_FileHeader.uRecordLength )
+    {
+        std::cerr << __FUNCTION__ << " Bad Record length calculated from field sizes " << uFieldOffset << ", header says " << m_FileHeader.uRecordLength << std::endl;
+        return 1;
+    }
+
     // move to start of first record
     int nFilePosForRec0 = 32+32*m_nNumFields+264;
     if( m_FileHeader.uPositionOfFirstRecord != nFilePosForRec0 )
